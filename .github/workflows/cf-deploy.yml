@@ -1,0 +1,23 @@
+name: Trigger Cloudflare Build
+
+on:
+  schedule:
+    - cron: "40 0 * * *"
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call Cloudflare deploy hook
+        env:
+          CF_DEPLOY_HOOK: ${{ secrets.CF_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$CF_DEPLOY_HOOK" ]; then
+            echo "missing CF_DEPLOY_HOOK secret"
+            exit 1
+          fi
+          curl -fsS -X POST "$CF_DEPLOY_HOOK"
+          echo "cloudflare build triggered"
