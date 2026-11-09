@@ -5,6 +5,9 @@ on:
     - cron: "40 0 * * *"
   push:
     branches: [ main ]
+  workflow_run:
+    workflows: [ "Fork Sync" ]
+    types: [ completed ]
   workflow_dispatch:
 
 jobs:
