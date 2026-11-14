@@ -1,5 +1,10 @@
-name: Trigger Cloudflare Build
+name: Deploy to Cloudflare Workers
 
+# 触发方式：
+#  1) Fork Sync 跑完（上游有新提交时自动跟随）
+#  2) 每天 UTC 00:40（北京 08:40）兜底
+#  3) 手动改代码 push 到 main
+#  4) 随时可在 Actions 页面手动点
 on:
   schedule:
     - cron: "40 0 * * *"
@@ -11,16 +16,32 @@ on:
   workflow_dispatch:
 
 jobs:
-  trigger:
+  deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Call Cloudflare deploy hook
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Deploy to Cloudflare
         env:
-          CF_DEPLOY_HOOK: ${{ secrets.CF_DEPLOY_HOOK }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: true
+        run: npx --yes wrangler@4 deploy
+
+      - name: Verify live version
         run: |
-          if [ -z "$CF_DEPLOY_HOOK" ]; then
-            echo "missing CF_DEPLOY_HOOK secret"
-            exit 1
-          fi
-          curl -fsS -X POST "$CF_DEPLOY_HOOK"
-          echo "cloudflare build triggered"
+          sleep 15
+          echo "--- 线上 /api/config 前 300 字符 ---"
+          curl -s https://danmu-api.276713916.workers.dev/api/config | head -c 300
+          echo
+          echo "--- 仓库代码里的版本号 ---"
+          grep -n "VERSION:" danmu_api/configs/globals.js
