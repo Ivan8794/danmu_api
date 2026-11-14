@@ -45,3 +45,6 @@ jobs:
           echo
           echo "--- 仓库代码里的版本号 ---"
           grep -n "VERSION:" danmu_api/configs/globals.js
+          echo "--- 搜索接口自检 ---"
+          curl -s -m 20 "https://danmu-api.276713916.workers.dev/87654321/api/v2/search/anime?keyword=test" | head -c 120
+          echo
