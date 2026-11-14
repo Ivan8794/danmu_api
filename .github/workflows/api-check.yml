@@ -1,0 +1,18 @@
+name: API Check
+on:
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe API
+        run: |
+          B="https://danmu-api.276713916.workers.dev/87654321"
+          echo "--- 1. config ---"
+          curl -s -m 20 "$B/api/config" | head -c 120; echo
+          echo "--- 2. 搜索 animes ---"
+          curl -s -m 30 "$B/api/v2/search/anime?keyword=%E9%80%B2%E6%93%8A%E7%9A%84%E7%83%82%E8%A7%A7" | head -c 600; echo
+          echo "--- 3. 搜索 episodes ---"
+          curl -s -m 30 "$B/api/v2/search/episodes?anime=%E9%80%B2%E6%93%8A%E7%9A%84%E7%83%82%E8%A7%A7&episode=1" | head -c 600; echo
+          echo "--- 4. match ---"
+          curl -s -m 30 "$B/api/v2/match" -H "Content-Type: application/json" -d '{"fileName":"[Nekomoe kissaten] Shingeki no Kyojin S01E01 [1080p].mp4"}' | head -c 500; echo
