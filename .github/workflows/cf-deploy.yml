@@ -1,10 +1,5 @@
 name: Deploy to Cloudflare Workers
 
-# 触发方式：
-#  1) Fork Sync 跑完（上游有新提交时自动跟随）
-#  2) 每天 UTC 00:40（北京 08:40）兜底
-#  3) 手动改代码 push 到 main
-#  4) 随时可在 Actions 页面手动点
 on:
   schedule:
     - cron: "40 0 * * *"
@@ -30,6 +25,42 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
+      # Cloudflare Workers 禁止在全局作用域调用 crypto.randomUUID / Math.random。
+      # 上游 1.22.0 在 pipeline-trace.js 顶层生成 nonce，会被 CF 校验拒绝（error 10021）。
+      # 这里在部署前改成惰性生成，上游修好后本步骤自动跳过。
+      - name: Patch global-scope random for Workers
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys
+          p = pathlib.Path("danmu_api/utils/pipeline-trace.js")
+          if not p.exists():
+              print("patch: file absent, skip")
+              sys.exit(0)
+          s = p.read_text(encoding="utf-8")
+          if "TRACE_BOOT_NONCE" not in s:
+              print("patch: nothing to do (already fixed or upstream changed)")
+              sys.exit(0)
+          old = ("const TRACE_BOOT_NONCE = globalThis.crypto?.randomUUID?.()\n"
+                 "  || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;")
+          new = ("// Cloudflare Workers 禁止在全局作用域生成随机值，改为首次使用时惰性生成\n"
+                 "let traceBootNonceCache = '';\n"
+                 "function getBootNonce() {\n"
+                 "  if (!traceBootNonceCache) {\n"
+                 "    traceBootNonceCache = globalThis.crypto?.randomUUID?.()\n"
+                 "      || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;\n"
+                 "  }\n"
+                 "  return traceBootNonceCache;\n"
+                 "}")
+          if old in s:
+              s = s.replace(old, new)
+          else:
+              print("patch: anchor shape changed, attempting loose replace")
+          s = s.replace("${TRACE_BOOT_NONCE}-${++traceSeq}", "${getBootNonce()}-${++traceSeq}")
+          s = s.replace("TRACE_BOOT_NONCE", "getBootNonce()")
+          p.write_text(s, encoding="utf-8")
+          print("patch: applied")
+          PY
+
       - name: Deploy to Cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -40,11 +71,12 @@ jobs:
       - name: Verify live version
         run: |
           sleep 15
-          echo "--- 线上 /api/config 前 300 字符 ---"
-          curl -s https://danmu-api.276713916.workers.dev/api/config | head -c 300
+          echo "--- 线上 /api/config ---"
+          curl -s -m 20 https://danmu-api.276713916.workers.dev/api/config | head -c 200
           echo
-          echo "--- 仓库代码里的版本号 ---"
+          echo "--- 仓库代码版本 ---"
           grep -n "VERSION:" danmu_api/configs/globals.js
           echo "--- 搜索接口自检 ---"
-          curl -s -m 20 "https://danmu-api.276713916.workers.dev/87654321/api/v2/search/anime?keyword=test" | head -c 120
+          curl -sG -m 30 "https://danmu-api.276713916.workers.dev/87654321/api/v2/search/anime" \
+            --data-urlencode "keyword=进击的巨人" | head -c 200
           echo
